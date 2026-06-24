@@ -755,6 +755,58 @@ def _consolidate_intersections_rebuild_graph(  # noqa: C901,PLR0912,PLR0915
             Gc.add_edge(u2, v2, **data)
 
     # STEP 7
+    # Detect forbidden turn movements from original graph topology.
+    # Each edge gets a forbidden_movements list of adjacent edges (v, w, k)
+    # that cannot be taken after traversing it.
+
+    for cluster_label, nodes_subset in groups:
+        if len(nodes_subset) < 2:
+            continue
+
+        cluster_nodes = set(nodes_subset.index)
+        internal_sg = G.subgraph(cluster_nodes)
+
+        # Precompute which original cluster-nodes are entry/exit points
+        # for each neighbouring cluster label
+        in_entries: dict = {}
+        for node in cluster_nodes:
+            for pred in G.predecessors(node):
+                if pred not in cluster_nodes:
+                    in_entries.setdefault(gdf.loc[pred, "cluster"], set()).add(node)
+
+        out_exits: dict = {}
+        for node in cluster_nodes:
+            for succ in G.successors(node):
+                if succ not in cluster_nodes:
+                    out_exits.setdefault(gdf.loc[succ, "cluster"], set()).add(node)
+
+        for src_cl, _, k_in in Gc.in_edges(cluster_label, keys=True):
+            if src_cl == cluster_label:
+                continue
+            entry_nodes = in_entries.get(src_cl, set())
+            if not entry_nodes:
+                continue
+
+            for _, dst_cl, k_out in Gc.out_edges(cluster_label, keys=True):
+                if dst_cl == cluster_label or dst_cl == src_cl:
+                    continue
+                exit_nodes = out_exits.get(dst_cl, set())
+                if not exit_nodes:
+                    continue
+
+                is_possible = any(
+                    entry == exit or nx.has_path(internal_sg, entry, exit)
+                    for entry, exit in itertools.product(entry_nodes, exit_nodes)
+                )
+
+                if not is_possible:
+                    if "turn_restriction" not in Gc.edges[src_cl, cluster_label, k_in]:
+                        Gc.edges[src_cl, cluster_label, k_in]["turn_restriction"] = []
+                    Gc.edges[src_cl, cluster_label, k_in]["turn_restriction"].append(
+                        (cluster_label, dst_cl, k_out)
+                    )
+
+    # STEP 8
     # for every group of merged nodes with more than 1 node in it, extend the
     # edge geometries to reach the new node point
     for cluster_label, nodes_subset in groups:

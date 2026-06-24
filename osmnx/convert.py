@@ -368,6 +368,10 @@ def to_digraph(G: nx.MultiDiGraph, *, weight: str = "length") -> nx.DiGraph:
         to_remove.extend((u, v, k) for k in G[u][v] if k != k_min)
 
     G.remove_edges_from(to_remove)
+    for u, v, data in G.edges(data=True):
+        if not "turn_restriction" in data:
+            continue
+        data["turn_restriction"] = [(u, v) for u, v, _ in data["turn_restriction"]]
     msg = "Converted MultiDiGraph to DiGraph"
     utils.log(msg, level=lg.INFO)
 
